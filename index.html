@@ -65,8 +65,11 @@
 
   // NO button runs away - it can never be clicked
   const slot = document.getElementById("noSlot");
-  let started = false, x = 0, y = 0, lastMove = 0;
+  let started = false, atHome = true, x = 0, y = 0, lastMove = 0, homeTimer = null;
   let mouse = { x: -999, y: -999 };
+
+  const homePos = () => { const r = slot.getBoundingClientRect(); return { x: r.left, y: r.top }; };
+  const setPos = (nx, ny) => { x = nx; y = ny; noBtn.style.transform = `translate3d(${x}px, ${y}px, 0)`; };
 
   function start() {
     // keep its place in the layout, then lift the button out as fixed
@@ -77,29 +80,50 @@
     noBtn.style.left = "0";
     noBtn.style.top = "0";
     noBtn.style.zIndex = 50;
-    x = r.left; y = r.top;
-    noBtn.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    setPos(r.left, r.top);
     noBtn.getBoundingClientRect();          // force reflow before enabling transition
     noBtn.classList.add("fly");
     started = true;
   }
 
+  // dodge: slide away from the cursor, then come back home on its own
   function runAway(px = mouse.x, py = mouse.y) {
     const now = performance.now();
-    if (now - lastMove < 250) return;       // let the glide finish a bit
+    if (now - lastMove < 200) return;
     lastMove = now;
     if (!started) start();
 
     const pad = 16, w = noBtn.offsetWidth, h = noBtn.offsetHeight;
     const maxX = window.innerWidth - w - pad, maxY = window.innerHeight - h - pad;
-    let nx = x, ny = y;
-    for (let i = 0; i < 25; i++) {          // pick a spot far from the cursor
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+
+    const angle = Math.atan2(y + h / 2 - py, x + w / 2 - px) + (Math.random() - 0.5) * 1.2;
+    const dist  = 170 + Math.random() * 90;
+    let nx = clamp(x + Math.cos(angle) * dist, pad, maxX);
+    let ny = clamp(y + Math.sin(angle) * dist, pad, maxY);
+
+    // cornered at an edge? pick a random spot that is far from the cursor
+    for (let i = 0; i < 25 && Math.hypot(nx + w / 2 - px, ny + h / 2 - py) < 140; i++) {
       nx = pad + Math.random() * Math.max(0, maxX - pad);
       ny = pad + Math.random() * Math.max(0, maxY - pad);
-      if (Math.hypot(nx + w / 2 - px, ny + h / 2 - py) > 220) break;
     }
-    x = nx; y = ny;
-    noBtn.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+
+    atHome = false;
+    setPos(nx, ny);
+    clearTimeout(homeTimer);
+    homeTimer = setTimeout(goHome, 900);
+  }
+
+  // glide back to the original place once the cursor is not close to it
+  function goHome() {
+    if (!started || atHome) return;
+    const hp = homePos(), w = noBtn.offsetWidth, h = noBtn.offsetHeight;
+    if (Math.hypot(mouse.x - (hp.x + w / 2), mouse.y - (hp.y + h / 2)) < 140) {
+      homeTimer = setTimeout(goHome, 400);  // cursor still near home - wait
+      return;
+    }
+    atHome = true;
+    setPos(hp.x, hp.y);
   }
 
   ["pointerenter", "pointerdown", "touchstart", "focus"].forEach(ev =>
@@ -117,7 +141,11 @@
     const r = noBtn.getBoundingClientRect();
     if (Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)) < 120) runAway();
   });
-  window.addEventListener("resize", () => { if (started) { lastMove = 0; runAway(); } });
+  window.addEventListener("resize", () => {
+    if (!started) return;
+    if (atHome) { const hp = homePos(); setPos(hp.x, hp.y); }
+    else goHome();
+  });
 </script>
 </body>
 </html>
